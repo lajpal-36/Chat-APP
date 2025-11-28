@@ -1,0 +1,320 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Dark P2P Chat (2 Users) — No DB</title>
+
+<!-- PeerJS -->
+<script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
+
+<style>
+  :root{
+    --bg:#0b1417;
+    --panel:#0f1a1c;
+    --muted:#8aa0a4;
+    --accent:#25D366; /* whatsapp green-ish */
+    --myBubble:#2a6f53;
+    --friendBubble:#1f2a2b;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:linear-gradient(180deg,#061012 0%, #071718 100%);font-family:Inter,Segoe UI,Arial;color:#e6f2f1;display:flex;align-items:center;justify-content:center;height:100vh}
+  .app{width:420px;max-width:96vw;background:var(--panel);border-radius:12px;box-shadow:0 8px 30px rgba(0,0,0,.6);overflow:hidden;border:1px solid rgba(255,255,255,0.03)}
+  .header{display:flex;align-items:center;justify-content:space-between;padding:14px 16px;border-bottom:1px solid rgba(255,255,255,0.03)}
+  .title{display:flex;gap:12px;align-items:center}
+  .dot{width:44px;height:44px;border-radius:10px;background:linear-gradient(180deg,#0f2f29,#083225);display:flex;align-items:center;justify-content:center;font-weight:700}
+  .title h3{margin:0;font-size:15px}
+  .status{font-size:12px;color:var(--muted)}
+  .controls{display:flex;gap:8px;align-items:center}
+  .id-box{background:rgba(255,255,255,0.03);padding:6px 8px;border-radius:8px;font-size:12px;color:var(--muted)}
+  button.btn{background:transparent;border:1px solid rgba(255,255,255,0.06);padding:6px 8px;border-radius:8px;color:var(--accent);cursor:pointer;font-weight:600}
+  button.btn:disabled{opacity:.45;cursor:not-allowed}
+  .body{display:flex;flex-direction:column;height:520px}
+  .top-controls{padding:12px;display:flex;gap:8px;align-items:center;border-bottom:1px solid rgba(255,255,255,0.02)}
+  input[type="text"].small{flex:1;padding:8px;border-radius:8px;background:#042b28;border:1px solid rgba(255,255,255,0.02);color:#e6f2f1}
+  .chat-window{flex:1;overflow:auto;padding:16px;display:flex;flex-direction:column;gap:10px;background:
+    linear-gradient(180deg, rgba(0,0,0,0.02), transparent)}
+  .bubble{max-width:78%;padding:10px 12px;border-radius:14px;color:#e6f2f1;position:relative;word-wrap:break-word;font-size:14px;line-height:1.25}
+  .friend{align-self:flex-start;background:linear-gradient(180deg,var(--friendBubble),#0f2b28);border:1px solid rgba(255,255,255,0.03);border-bottom-left-radius:4px}
+  .me{align-self:flex-end;background:linear-gradient(180deg,var(--myBubble),#134f3b);border:1px solid rgba(255,255,255,0.03);border-bottom-right-radius:4px}
+  .ts{font-size:11px;color:var(--muted);margin-top:6px;opacity:.9}
+  .input-area{display:flex;gap:8px;padding:12px;border-top:1px solid rgba(255,255,255,0.02);align-items:center}
+  input[type="text"].msg{flex:1;padding:12px;border-radius:999px;background:#052b29;border:1px solid rgba(255,255,255,0.03);color:#e6f2f1}
+  .typing{font-size:12px;color:var(--muted);padding-left:12px;height:18px}
+  .small-muted{font-size:12px;color:var(--muted)}
+  .id-actions{display:flex;gap:6px}
+  .notice{padding:10px;text-align:center;font-size:13px;color:var(--muted);border-top:1px dashed rgba(255,255,255,0.02)}
+  .copyBtn{background:rgba(255,255,255,0.02);border:1px solid rgba(255,255,255,0.03);padding:6px;border-radius:8px;color:var(--muted);cursor:pointer}
+  .connected-indicator{display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:8px}
+  .connected-indicator.off{background:#6b6b6b}
+  .connected-indicator.on{background:var(--accent);box-shadow:0 0 8px rgba(37,211,102,0.18)}
+</style>
+</head>
+<body>
+
+<div class="app" role="application" aria-label="P2P Dark Chat">
+  <div class="header">
+    <div class="title">
+      <div class="dot">P2</div>
+      <div>
+        <h3>Dark P2P Chat</h3>
+        <div class="status" id="connStatus">Not connected</div>
+      </div>
+    </div>
+
+    <div class="controls">
+      <div class="id-box small-muted">Your ID: <span id="myIdText">...</span></div>
+      <button class="copyBtn" id="copyBtn" title="Copy my ID">Copy</button>
+    </div>
+  </div>
+
+  <div class="body">
+    <div class="top-controls">
+      <input class="small" id="peerToConnect" placeholder="Enter friend's ID to connect" />
+      <div class="id-actions">
+        <button class="btn" id="connectBtn">Connect</button>
+        <button class="btn" id="resetBtn">Reset</button>
+      </div>
+    </div>
+
+    <div id="chat" class="chat-window" aria-live="polite"></div>
+
+    <div class="notice" id="notice">Share your ID with friend and they will connect — messages go direct between browsers.</div>
+
+    <div class="input-area">
+      <input class="msg" id="msgInput" placeholder="Type a message..." autocomplete="off" />
+      <button class="btn" id="sendBtn">Send</button>
+    </div>
+
+    <div style="display:flex;align-items:center;justify-content:space-between;padding:8px 12px;">
+      <div class="typing" id="typingIndicator"></div>
+      <div class="small-muted">
+        <span class="connected-indicator off" id="dot"></span>
+        <span id="connText">Disconnected</span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+  // ---------- Utilities ----------
+  function escapeHtml(str){
+    if(!str) return '';
+    return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#039;');
+  }
+  function timeNow(){
+    const d = new Date();
+    return d.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
+  }
+
+  // ---------- PeerJS setup ----------
+  const peer = new Peer(); // uses default cloud PeerServer for signaling
+  let conn = null;
+  let typingTimeout = null;
+
+  const myIdText = document.getElementById('myIdText');
+  const copyBtn = document.getElementById('copyBtn');
+  const connectBtn = document.getElementById('connectBtn');
+  const resetBtn = document.getElementById('resetBtn');
+  const peerToConnect = document.getElementById('peerToConnect');
+  const chat = document.getElementById('chat');
+  const sendBtn = document.getElementById('sendBtn');
+  const msgInput = document.getElementById('msgInput');
+  const connStatus = document.getElementById('connStatus');
+  const typingIndicator = document.getElementById('typingIndicator');
+  const connText = document.getElementById('connText');
+  const dot = document.getElementById('dot');
+  const notice = document.getElementById('notice');
+
+  function setConnectedUI(isConnected){
+    if(isConnected){
+      connStatus.innerText = 'Connected';
+      connText.innerText = 'Connected';
+      dot.classList.remove('off'); dot.classList.add('on');
+    } else {
+      connStatus.innerText = 'Not connected';
+      connText.innerText = 'Disconnected';
+      dot.classList.remove('on'); dot.classList.add('off');
+    }
+  }
+
+  function addMessageBubble(text, who){
+    // who: 'me' or 'friend'
+    const wrapper = document.createElement('div');
+    wrapper.className = 'bubble ' + (who === 'me' ? 'me' : 'friend');
+    wrapper.innerHTML = `<div>${escapeHtml(text)}</div><div class="ts">${timeNow()}</div>`;
+    chat.appendChild(wrapper);
+    chat.scrollTop = chat.scrollHeight;
+  }
+
+  function showNotice(text){
+    notice.innerText = text;
+  }
+
+  // Peer open
+  peer.on('open', id => {
+    myIdText.innerText = id;
+    showNotice('Share your ID with friend. Or paste their ID above then Connect.');
+  });
+
+  // Incoming connection
+  peer.on('connection', connection => {
+    if(conn && conn.open){
+      // already connected, politely close extra incoming
+      connection.on('open', ()=> connection.send({type:'system', text:'busy'}));
+      connection.on('data', ()=>{});
+      return;
+    }
+    conn = connection;
+    setupConnection();
+  });
+
+  // connection helpers
+  function setupConnection(){
+    setConnectedUI(true);
+    showNotice('Connected — chat is direct between browsers.');
+    // receive data
+    conn.on('data', handleIncoming);
+    conn.on('close', ()=>{
+      addMessageBubble('--- Friend disconnected ---','friend');
+      setConnectedUI(false);
+      conn = null;
+    });
+    conn.on('error', err=>{
+      console.error('Connection error', err);
+      addMessageBubble('--- Connection error ---','friend');
+      setConnectedUI(false);
+    });
+  }
+
+  function handleIncoming(data){
+    // data may be object or string
+    // We adopt a small protocol: {type:'message'|'typing'|'system', text: '...'}
+    try{
+      if(typeof data === 'string'){
+        // legacy string -> treat as plain message
+        addMessageBubble(data, 'friend');
+        return;
+      }
+      if(data && data.type === 'message'){
+        addMessageBubble(data.text, 'friend');
+        typingIndicator.innerText = '';
+      } else if(data && data.type === 'typing'){
+        typingIndicator.innerText = 'Friend is typing...';
+        if(typingTimeout) clearTimeout(typingTimeout);
+        typingTimeout = setTimeout(()=>{ typingIndicator.innerText = ''; }, 1500);
+      } else if(data && data.type === 'system'){
+        addMessageBubble('--- '+(data.text||'system')+' ---','friend');
+      }
+    } catch(e){
+      console.error(e);
+    }
+  }
+
+  // Connect button
+  connectBtn.addEventListener('click', ()=>{
+    const id = peerToConnect.value.trim();
+    if(!id){ alert('Enter an ID to connect.'); return; }
+    if(conn && conn.open){ alert('Already connected. Reset to connect to someone else.'); return; }
+    conn = peer.connect(id, {reliable:true});
+    conn.on('open', ()=>{
+      setupConnection();
+      // send hello
+      conn.send({type:'system', text:'hello'});
+    });
+    conn.on('error', (err)=>{ console.error(err); alert('Connection error. See console.'); conn=null; setConnectedUI(false); });
+  });
+
+  // Reset: destroy connection
+  resetBtn.addEventListener('click', ()=>{
+    if(conn){
+      try{ conn.close(); }catch(e){}
+      conn = null;
+    }
+    setConnectedUI(false);
+    addMessageBubble('--- You reset the connection ---','me');
+    showNotice('Share your ID or connect to friend.');
+  });
+
+  // Copy my ID
+  copyBtn.addEventListener('click', ()=>{
+    const id = myIdText.innerText;
+    if(!id) return;
+    navigator.clipboard?.writeText(id).then(()=>{
+      copyBtn.innerText = 'Copied';
+      setTimeout(()=> copyBtn.innerText = 'Copy', 1200);
+    }).catch(()=> alert('Copy failed — manually select ID.'));
+  });
+
+  // Send message
+  function sendMessage(){
+    const txt = msgInput.value.trim();
+    if(!txt) return;
+    if(!conn || !conn.open){
+      alert('Not connected. Paste friend ID and press Connect first.');
+      return;
+    }
+    // local render
+    addMessageBubble(txt, 'me');
+    // send structured message
+    try{
+      conn.send({type:'message', text: txt});
+    }catch(e){
+      console.error('Send failed', e);
+      addMessageBubble('--- Send failed ---','me');
+    }
+    msgInput.value = '';
+    typingIndicator.innerText = '';
+    msgInput.focus();
+  }
+
+  sendBtn.addEventListener('click', sendMessage);
+  msgInput.addEventListener('keydown', (e)=>{
+    if(e.key === 'Enter'){ e.preventDefault(); sendMessage(); }
+    else {
+      // send typing notification (throttle)
+      if(conn && conn.open){
+        conn.send({type:'typing'});
+      }
+    }
+  });
+
+  // also send typing on input
+  let lastTyping = 0;
+  msgInput.addEventListener('input', ()=>{
+    const now = Date.now();
+    if(conn && conn.open && now - lastTyping > 600){
+      conn.send({type:'typing'});
+      lastTyping = now;
+    }
+  });
+
+  // initial UI state
+  setConnectedUI(false);
+  // focus input
+  msgInput.focus();
+
+  // cleanup before unload
+  window.addEventListener('beforeunload', ()=> {
+    try{ peer.destroy(); }catch(e){}
+  });
+
+  // helpful touch: show incoming ID in URL hash optionally
+  // (not required, but user can share link like page#<id> if desired)
+  // If friend opens with ?connect=<id> auto-fill:
+  (function autofillFromQuery(){
+    try{
+      const params = new URLSearchParams(location.search);
+      const to = params.get('connect');
+      if(to){ peerToConnect.value = to; }
+      if(location.hash && location.hash.length>1){
+        // optionally show hash in input
+        peerToConnect.value = decodeURIComponent(location.hash.substring(1));
+      }
+    }catch(e){}
+  })();
+
+</script>
+</body>
+</html>
+
